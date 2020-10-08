@@ -1,11 +1,9 @@
+from pandas_vet.version import __version__
 import ast
 from collections import namedtuple
 from functools import partial
-from typing import List
-
+from typing import List, Union
 import attr
-
-from .version import __version__
 
 
 @attr.s
@@ -66,6 +64,20 @@ class Visitor(ast.NodeVisitor):
         """
         self.generic_visit(node)  # continue checking children
         self.errors.extend(check_for_df(node))
+
+    def visit_For(self, node):
+        """
+        Called for `For` nodes.
+        """
+        self.generic_visit(node)
+        self.errors.extend(check_for_assignment_to_loc_in_loop(node))
+
+    def visit_While(self, node):
+        """
+        Called for `For` nodes.
+        """
+        self.generic_visit(node)
+        self.errors.extend(check_for_assignment_to_loc_in_loop(node))
 
     def check(self, node):
         self.errors = []
@@ -339,6 +351,34 @@ def check_for_merge(node: ast.Call) -> List:
     return []
 
 
+def check_for_assignment_to_loc_in_loop(node: Union[ast.For, ast.While]) -> List:
+    """
+    Check AST for occurence of assignment to .loc or .iloc in loops.
+
+    This practice can result in performance hits and is difficult to interpret.
+    This will not raise for assignment of .loc operations to a variable, as
+    that is a common practice.
+
+    Error/warning message to recommend assignment to array slice.
+    """
+    # There can be multiple assignments in a for loop, check all and return
+    # all errors
+    errors = []
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.Assign):
+            # Checking for assingnment to iloc and loc
+            targets = child.targets
+            for target in targets:
+                if (
+                    isinstance(target, ast.Subscript)
+                    # Normal vars do not have "attr" attr.
+                    and hasattr(target.value, "attr")
+                    and (target.value.attr == "iloc" or target.value.attr == "loc")
+                ):
+                    errors.append(PD016(target.lineno, target.col_offset))
+    return errors
+
+
 def check_for_df(node: ast.Name) -> List:
     """
     Check for variables named `df`
@@ -397,6 +437,11 @@ PD013 = VetError(
 PD015 = VetError(
     message="PD015 Use '.merge' method instead of 'pd.merge' function. "
     "They have equivalent functionality."
+)
+
+PD016 = VetError(
+    message="PD016 Do not assign to loc or iloc in a loop. "
+    "Assign directly to array slice."
 )
 
 PD901 = VetError(
