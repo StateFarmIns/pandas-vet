@@ -74,7 +74,7 @@ class Visitor(ast.NodeVisitor):
 
     def visit_While(self, node):
         """
-        Called for `For` nodes.
+        Called for `While` nodes.
         """
         self.generic_visit(node)
         self.errors.extend(check_for_assignment_to_loc_in_loop(node))
